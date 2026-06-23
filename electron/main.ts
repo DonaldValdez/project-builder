@@ -3,8 +3,25 @@ import { join } from 'path'
 import { spawn } from 'child_process'
 import { existsSync, readFileSync, readdirSync, cpSync } from 'fs'
 
+const isMac = process.platform === 'darwin'
+
 function buildMenu(win: BrowserWindow): void {
   const menu = Menu.buildFromTemplate([
+    // macOS: first menu item is always the app name menu
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const },
+        { type: 'separator' as const },
+        { role: 'services' as const },
+        { type: 'separator' as const },
+        { role: 'hide' as const },
+        { role: 'hideOthers' as const },
+        { role: 'unhide' as const },
+        { type: 'separator' as const },
+        { role: 'quit' as const }
+      ]
+    }] : []),
     {
       label: 'File',
       submenu: [
@@ -22,11 +39,12 @@ function buildMenu(win: BrowserWindow): void {
           }
         },
         { type: 'separator' },
-        {
+        // Quit lives in the App menu on macOS; keep it in File on Windows/Linux
+        ...(!isMac ? [{
           label: 'Quit',
           accelerator: 'CmdOrCtrl+Q',
           click() { app.quit() }
-        }
+        }] : [])
       ]
     },
     {
@@ -44,7 +62,7 @@ function buildMenu(win: BrowserWindow): void {
         },
         { type: 'separator' },
         {
-          label: 'Open Output in Explorer',
+          label: isMac ? 'Show Output in Finder' : 'Open Output in Explorer',
           click() { win.webContents.send('menu-open-output') }
         }
       ]
@@ -117,7 +135,16 @@ function createWindow(): void {
 }
 
 app.whenReady().then(createWindow)
-app.on('window-all-closed', () => app.quit())
+
+// On macOS: don't quit when all windows close — keep the app in the dock
+app.on('window-all-closed', () => {
+  if (!isMac) app.quit()
+})
+
+// On macOS: re-create the window when the dock icon is clicked and no windows are open
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+})
 
 // ── Detection helpers ──────────────────────────────────────────────────────
 
