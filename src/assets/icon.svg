@@ -1,0 +1,33 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" rx="52" fill="url(#bg)"/>
+
+  <!-- Folder body -->
+  <rect x="44" y="96" width="168" height="108" rx="12" fill="white" opacity="0.2"/>
+  <!-- Folder tab -->
+  <path d="M44 96 L44 80 Q44 70 54 70 L108 70 L122 84 L202 84 Q212 84 212 94 L212 96 Z" fill="white" opacity="0.2"/>
+  <!-- Folder face (lighter) -->
+  <rect x="44" y="100" width="168" height="104" rx="12" fill="white" opacity="0.15"/>
+
+  <!-- Lightning bolt -->
+  <path d="M148 72 L108 140 L132 140 L108 184 L164 112 L138 112 Z"
+        fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- DMV badge bottom-right -->
+  <circle cx="196" cy="196" r="36" fill="#1e1b4b"/>
+  <circle cx="196" cy="196" r="34" fill="none" stroke="#818cf8" stroke-width="2"/>
+  <text x="196" y="204"
+        text-anchor="middle"
+        fill="#a5b4fc"
+        font-family="'Arial Narrow','Arial',sans-serif"
+        font-size="20"
+        font-weight="900"
+        letter-spacing="1">DMV</text>
+</svg>

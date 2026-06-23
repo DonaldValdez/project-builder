@@ -1,0 +1,41 @@
+<svg viewBox="0 0 260 64" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <defs>
+    <linearGradient id="iconGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#c7d2fe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon badge -->
+  <rect x="0" y="4" width="56" height="56" rx="14" fill="url(#iconGrad)"/>
+
+  <!-- Folder body -->
+  <path d="M11 24 Q11 20 15 20 L21 20 L24 17 L41 17 Q45 17 45 21 L45 40 Q45 44 41 44 L15 44 Q11 44 11 40 Z"
+        fill="white" opacity="0.15"/>
+  <path d="M11 26 L45 26 L45 40 Q45 44 41 44 L15 44 Q11 44 11 40 Z"
+        fill="white" opacity="0.25"/>
+
+  <!-- Lightning bolt (build/deploy symbol) -->
+  <path d="M31 22 L25 33 L30 33 L25 44 L37 30 L31 30 Z"
+        fill="#fbbf24" stroke="#f59e0b" stroke-width="0.5"/>
+
+  <!-- DMV monogram badge (bottom-right of icon) -->
+  <circle cx="46" cy="47" r="10" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="46" y="51" text-anchor="middle" fill="#a5b4fc"
+        font-family="'Inter','Helvetica Neue',sans-serif"
+        font-size="7" font-weight="800" letter-spacing="0.3">DMV</text>
+
+  <!-- Wordmark: Project Builder -->
+  <text x="68" y="31" fill="url(#textGrad)"
+        font-family="'Inter','Helvetica Neue',sans-serif"
+        font-size="21" font-weight="800" letter-spacing="-0.5">Project Builder</text>
+
+  <!-- Byline -->
+  <text x="69" y="47" fill="#6366f1"
+        font-family="'Inter','Helvetica Neue',sans-serif"
+        font-size="11" font-weight="500" letter-spacing="0.2">by Donald M. Valdez</text>
+</svg>

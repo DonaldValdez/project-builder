@@ -1,0 +1,68 @@
+{
+  "name": "project-builder",
+  "version": "1.0.0",
+  "description": "Drag-and-drop desktop app that auto-detects your frontend project, initializes Git, installs dependencies, and runs the build — all in one click.",
+  "main": "out/main/index.js",
+  "author": {
+    "name": "Donald M. Valdez",
+    "email": "donaldmvaldez@gmail.com",
+    "url": "https://donaldvaldez.com"
+  },
+  "keywords": [
+    "electron",
+    "project-builder",
+    "vite",
+    "react",
+    "git",
+    "automation",
+    "devtools",
+    "desktop-app"
+  ],
+  "homepage": "https://github.com/DonaldValdez/project-builder",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DonaldValdez/project-builder.git"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-vite build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.38",
+    "sharp": "^0.35.2",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.5.2",
+    "vite": "^5.3.1"
+  },
+  "build": {
+    "appId": "com.donaldvaldez.project-builder",
+    "productName": "Project Builder",
+    "copyright": "© 2025 Donald M. Valdez",
+    "icon": "src/assets/icon.png",
+    "win": {
+      "target": "nsis",
+      "icon": "src/assets/icon.png"
+    },
+    "nsis": {
+      "installerName": "ProjectBuilder-Setup",
+      "shortcutName": "Project Builder"
+    },
+    "directories": {
+      "output": "release"
+    }
+  }
+}
