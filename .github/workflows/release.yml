@@ -16,19 +16,23 @@ jobs:
   # ── Windows: NSIS installer (.exe) ──────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    env:
+      # Skip code signing — no certificate on CI
+      CSC_IDENTITY_AUTO_DISCOVERY: false
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build Windows installer
-        run: npm run package
+        # BMPs are already committed; skip regenerating them to avoid sharp issues on CI
+        run: npx electron-vite build && npx electron-builder --win --publish never
 
       - uses: actions/upload-artifact@v4
         with:
@@ -38,19 +42,22 @@ jobs:
   # ── macOS: Universal DMG (Intel + Apple Silicon) ─────────────────────────────
   build-mac:
     runs-on: macos-latest
+    env:
+      # Skip code signing — no certificate on CI
+      CSC_IDENTITY_AUTO_DISCOVERY: false
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build macOS DMG
-        run: npm run package:mac
+        run: npx electron-vite build && npx electron-builder --mac --publish never
 
       - uses: actions/upload-artifact@v4
         with:
