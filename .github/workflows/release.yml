@@ -4,7 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual trigger — lets you attach builds to an existing release tag
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to attach builds to (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
   # ── Windows: NSIS installer (.exe) ──────────────────────────────────────────
@@ -51,7 +57,7 @@ jobs:
           name: mac-dmg
           path: release/*.dmg
 
-  # ── Publish: create GitHub Release with both files attached ─────────────────
+  # ── Publish: attach both files to the GitHub Release ─────────────────────────
   publish:
     needs: [build-windows, build-mac]
     runs-on: ubuntu-latest
@@ -63,8 +69,11 @@ jobs:
           merge-multiple: true
           path: dist/
 
-      - name: Create GitHub Release
+      - name: Attach builds to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # On tag push: use the pushed tag. On manual dispatch: use the input.
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name }}
           files: dist/*
-          generate_release_notes: true
+          generate_release_notes: false
+          fail_on_unmatched_files: false
