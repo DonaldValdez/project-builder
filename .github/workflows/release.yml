@@ -55,8 +55,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        # --omit=optional skips sharp's platform-specific native binaries (not needed for macOS build)
-        run: npm ci --omit=optional
+        # npm install (not ci) lets npm resolve the correct platform-specific optional
+        # packages (rollup, sharp) for macOS arm64 — the lockfile was generated on Windows
+        # so npm ci would fail looking for @rollup/rollup-darwin-arm64
+        run: npm install
 
       - name: Build macOS DMG
         run: npx electron-vite build && npx electron-builder --mac --publish never
