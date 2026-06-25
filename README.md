@@ -103,4 +103,4 @@ project-builder/
 
 ## License
 
-MIT © 2025 Donald M. Valdez
+MIT © 2026 Donald M. Valdez
