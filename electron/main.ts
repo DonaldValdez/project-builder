@@ -230,7 +230,9 @@ function walkHtml(dir: string, acc: string[] = []): string[] {
 }
 
 // Rewrite root-relative asset paths (e.g. /assets/...) to relative (./assets/...)
-// so the output works when opened via file:// or deployed to a subdirectory.
+// and strip crossorigin attributes so the output works when opened via file://.
+// Vite adds crossorigin on <script>/<link> for CDN CORS — file:// has no CORS
+// headers, so the browser blocks those assets unless the attribute is removed.
 function rewriteHtmlAssetPaths(outDir: string): number {
   if (!existsSync(outDir)) return 0
   let count = 0
@@ -239,6 +241,7 @@ function rewriteHtmlAssetPaths(outDir: string): number {
     const updated = content
       .replace(/(href|src)="\/(?!\/)/g, '$1="./')
       .replace(/(href|src)='\/(?!\/)/g, "$1='./")
+      .replace(/ crossorigin(?:="[^"]*"|='[^']*')?/g, '')
     if (updated !== content) {
       writeFileSync(htmlFile, updated, 'utf-8')
       count++
