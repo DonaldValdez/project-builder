@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
 import { join } from 'path'
 import { spawn } from 'child_process'
-import { existsSync, readFileSync, readdirSync, cpSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, cpSync } from 'fs'
 
 const isMac = process.platform === 'darwin'
 
@@ -218,6 +218,35 @@ ipcMain.handle('detect-project', (_e, dir: string) => {
   }
 })
 
+// ── HTML post-processing ───────────────────────────────────────────────────
+
+function walkHtml(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) walkHtml(full, acc)
+    else if (entry.isFile() && entry.name.endsWith('.html')) acc.push(full)
+  }
+  return acc
+}
+
+// Rewrite root-relative asset paths (e.g. /assets/...) to relative (./assets/...)
+// so the output works when opened via file:// or deployed to a subdirectory.
+function rewriteHtmlAssetPaths(outDir: string): number {
+  if (!existsSync(outDir)) return 0
+  let count = 0
+  for (const htmlFile of walkHtml(outDir)) {
+    const content = readFileSync(htmlFile, 'utf-8')
+    const updated = content
+      .replace(/(href|src)="\/(?!\/)/g, '$1="./')
+      .replace(/(href|src)='\/(?!\/)/g, "$1='./")
+    if (updated !== content) {
+      writeFileSync(htmlFile, updated, 'utf-8')
+      count++
+    }
+  }
+  return count
+}
+
 // ── IPC: run pipeline ──────────────────────────────────────────────────────
 
 ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, outputDir }: {
@@ -272,6 +301,9 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
       }
 
       const outLabel = outputDir || defaultOutDir
+      send('> Rewriting HTML asset paths for file:// compatibility…', 'cmd')
+      const rewritten = rewriteHtmlAssetPaths(outLabel)
+      if (rewritten > 0) send(`  ✓ Patched ${rewritten} HTML file${rewritten > 1 ? 's' : ''}`, 'out')
       send(`✓ Done! Output → ${outLabel}`, 'done')
       if (repoUrl) send('  To push: git push -u origin main', 'done')
     } catch (err: unknown) {
