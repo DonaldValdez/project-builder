@@ -347,8 +347,10 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
       if (!existsSync(targetDir) && existsSync(nitroPubDir)) {
         send(`> Nitro SSR build detected — copying static assets to ${targetDir}`, 'cmd')
         cpSync(nitroPubDir, targetDir, { recursive: true })
-        if (generateFallbackIndexHtml(targetDir)) {
-          send(`  Generated index.html (CSR shell — app renders client-side)`, 'out')
+        if (existsSync(join(targetDir, 'index.html'))) {
+          send(`  Prerendered HTML included from .output/public/`, 'out')
+        } else if (generateFallbackIndexHtml(targetDir)) {
+          send(`  Generated index.html (CSR shell — no prerendering detected)`, 'out')
         }
         send(`  Note: for a full Cloudflare/Nitro deployment, use .output/ instead.`, 'out')
       }
