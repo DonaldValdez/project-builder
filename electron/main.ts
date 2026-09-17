@@ -174,6 +174,16 @@ function getPackageScripts(dir: string): string[] {
   }
 }
 
+function isNitroProject(dir: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'))
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies }
+    return '@tanstack/react-start' in deps || '@lovable.dev/vite-tanstack-config' in deps
+  } catch {
+    return false
+  }
+}
+
 // ── IPC: open external URL ────────────────────────────────────────────────
 
 ipcMain.handle('open-external', (_e, url: string) => shell.openExternal(url))
@@ -328,31 +338,33 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
       }
       await runCmd(pm, ['install'], dir)
 
-      // For Vite, pass --outDir directly; for others build normally then copy
-      if (outputDir && framework === 'Vite') {
+      const nitro = isNitroProject(dir)
+      const nitroPubDir = join(dir, '.output', 'public')
+      const targetDir = outputDir || defaultOutDir
+
+      // Nitro/TanStack Start: never pass --outDir — the build pipeline ignores
+      // it and may create a partial empty dir that blocks the fallback copy.
+      if (nitro) {
+        await runCmd(pm, ['run', 'build'], dir)
+        if (existsSync(nitroPubDir)) {
+          send(`> Nitro build — copying .output/public/ → ${targetDir}`, 'cmd')
+          cpSync(nitroPubDir, targetDir, { recursive: true })
+          if (existsSync(join(targetDir, 'index.html'))) {
+            send(`  Prerendered HTML included`, 'out')
+          } else if (generateFallbackIndexHtml(targetDir)) {
+            send(`  Generated index.html (CSR shell — prerendering not detected)`, 'out')
+          }
+          send(`  Note: for full Cloudflare/Nitro deployment, use .output/ instead.`, 'out')
+        }
+      } else if (outputDir && framework === 'Vite') {
+        // Regular Vite: pass --outDir so the build lands directly in the right place
         await runCmd(pm, ['run', 'build', '--', '--outDir', outputDir], dir)
       } else {
         await runCmd(pm, ['run', 'build'], dir)
-        if (outputDir && outputDir !== defaultOutDir) {
+        if (outputDir && outputDir !== defaultOutDir && existsSync(defaultOutDir)) {
           send(`> Copying output to ${outputDir}`, 'cmd')
           cpSync(defaultOutDir, outputDir, { recursive: true })
         }
-      }
-
-      // Nitro/TanStack Start fallback: these frameworks ignore --outDir and
-      // always write to .output/. If the expected output dir is missing but
-      // .output/public/ exists, copy the static assets there so dist/ is created.
-      const targetDir = outputDir || defaultOutDir
-      const nitroPubDir = join(dir, '.output', 'public')
-      if (!existsSync(targetDir) && existsSync(nitroPubDir)) {
-        send(`> Nitro SSR build detected — copying static assets to ${targetDir}`, 'cmd')
-        cpSync(nitroPubDir, targetDir, { recursive: true })
-        if (existsSync(join(targetDir, 'index.html'))) {
-          send(`  Prerendered HTML included from .output/public/`, 'out')
-        } else if (generateFallbackIndexHtml(targetDir)) {
-          send(`  Generated index.html (CSR shell — no prerendering detected)`, 'out')
-        }
-        send(`  Note: for a full Cloudflare/Nitro deployment, use .output/ instead.`, 'out')
       }
 
       const outLabel = targetDir
