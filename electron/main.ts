@@ -303,7 +303,19 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
         }
       }
 
-      const outLabel = outputDir || defaultOutDir
+      // Nitro/TanStack Start fallback: these frameworks ignore --outDir and
+      // always write to .output/. If the expected output dir is missing but
+      // .output/public/ exists, copy the static assets there so dist/ is created.
+      const targetDir = outputDir || defaultOutDir
+      const nitroPubDir = join(dir, '.output', 'public')
+      if (!existsSync(targetDir) && existsSync(nitroPubDir)) {
+        send(`> Nitro SSR build detected — copying static assets to ${targetDir}`, 'cmd')
+        cpSync(nitroPubDir, targetDir, { recursive: true })
+        send(`  Note: this project uses server-side rendering. No index.html is included.`, 'out')
+        send(`  For a full Cloudflare/Nitro deployment, use the .output/ directory.`, 'out')
+      }
+
+      const outLabel = targetDir
       send('> Rewriting HTML asset paths for file:// compatibility…', 'cmd')
       const rewritten = rewriteHtmlAssetPaths(outLabel)
       if (rewritten > 0) send(`  ✓ Patched ${rewritten} HTML file${rewritten > 1 ? 's' : ''}`, 'out')
