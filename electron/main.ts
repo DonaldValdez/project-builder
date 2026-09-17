@@ -229,6 +229,42 @@ function walkHtml(dir: string, acc: string[] = []): string[] {
   return acc
 }
 
+// For Nitro/SSR builds that produce no index.html, generate a minimal CSR shell
+// so the output can be opened in a browser. TanStack Router mounts client-side
+// into #root and falls back to CSR when no server-rendered HTML is present.
+function generateFallbackIndexHtml(outDir: string): boolean {
+  const assetsDir = join(outDir, 'assets')
+  if (!existsSync(assetsDir)) return false
+
+  const assets = readdirSync(assetsDir)
+  const cssFiles = assets.filter(f => f.endsWith('.css'))
+  const mainJs = assets.find(f => f.startsWith('index-') && f.endsWith('.js'))
+  if (!mainJs) return false
+
+  const hasFavicon = existsSync(join(outDir, 'favicon.ico')) || existsSync(join(outDir, 'favicon'))
+  const faviconTag = hasFavicon ? '\n    <link rel="icon" href="./favicon.ico" type="image/x-icon" />' : ''
+  const linkTags = cssFiles.map(f => `    <link rel="stylesheet" href="./assets/${f}">`).join('\n')
+
+  const html = [
+    '<!doctype html>',
+    '<html lang="en">',
+    '  <head>',
+    '    <meta charset="UTF-8" />',
+    '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />' + faviconTag,
+    ...(cssFiles.length > 0 ? [linkTags] : []),
+    '  </head>',
+    '  <body>',
+    '    <div id="root"></div>',
+    `    <script type="module" src="./assets/${mainJs}"></script>`,
+    '  </body>',
+    '</html>',
+    ''
+  ].join('\n')
+
+  writeFileSync(join(outDir, 'index.html'), html, 'utf-8')
+  return true
+}
+
 // Rewrite root-relative asset paths (e.g. /assets/...) to relative (./assets/...)
 // and strip crossorigin attributes so the output works when opened via file://.
 // Vite adds crossorigin on <script>/<link> for CDN CORS — file:// has no CORS
@@ -311,8 +347,10 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
       if (!existsSync(targetDir) && existsSync(nitroPubDir)) {
         send(`> Nitro SSR build detected — copying static assets to ${targetDir}`, 'cmd')
         cpSync(nitroPubDir, targetDir, { recursive: true })
-        send(`  Note: this project uses server-side rendering. No index.html is included.`, 'out')
-        send(`  For a full Cloudflare/Nitro deployment, use the .output/ directory.`, 'out')
+        if (generateFallbackIndexHtml(targetDir)) {
+          send(`  Generated index.html (CSR shell — app renders client-side)`, 'out')
+        }
+        send(`  Note: for a full Cloudflare/Nitro deployment, use .output/ instead.`, 'out')
       }
 
       const outLabel = targetDir
