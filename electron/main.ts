@@ -184,6 +184,55 @@ function isNitroProject(dir: string): boolean {
   }
 }
 
+function semverLt(a: string, b: string): boolean {
+  const parse = (v: string) => v.replace(/^[^\d]*/, '').split('.').map(n => parseInt(n) || 0)
+  const [aMaj, aMin, aPatch] = parse(a)
+  const [bMaj, bMin, bPatch] = parse(b)
+  return aMaj < bMaj || (aMaj === bMaj && (aMin < bMin || (aMin === bMin && aPatch < bPatch)))
+}
+
+type SendFn = (text: string, type: 'cmd' | 'out' | 'err' | 'done' | 'fail') => void
+
+// Auto-patch Lovable/TanStack Start projects before each build so users
+// never need to manually update the package or add prerender config.
+function patchLovableProject(dir: string, send: SendFn): void {
+  const TARGET = '2.23.0'
+
+  // 1. Bump @lovable.dev/vite-tanstack-config to TARGET if below it
+  try {
+    const pkgPath = join(dir, 'package.json')
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+    const inDev = '@lovable.dev/vite-tanstack-config' in (pkg.devDependencies ?? {})
+    const inDep = '@lovable.dev/vite-tanstack-config' in (pkg.dependencies ?? {})
+    const current = inDev
+      ? pkg.devDependencies['@lovable.dev/vite-tanstack-config']
+      : inDep ? pkg.dependencies['@lovable.dev/vite-tanstack-config'] : null
+    if (current && semverLt(current, TARGET)) {
+      if (inDev) pkg.devDependencies['@lovable.dev/vite-tanstack-config'] = TARGET
+      else pkg.dependencies['@lovable.dev/vite-tanstack-config'] = TARGET
+      writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
+      send(`  Bumped @lovable.dev/vite-tanstack-config ${current} → ${TARGET}`, 'out')
+    }
+  } catch { /* unreadable */ }
+
+  // 2. Inject prerender block into vite.config.ts/js if missing
+  for (const name of ['vite.config.ts', 'vite.config.js']) {
+    const cfgPath = join(dir, name)
+    if (!existsSync(cfgPath)) continue
+    const src = readFileSync(cfgPath, 'utf-8')
+    if (!src.includes('tanstackStart:') || src.includes('prerender:')) break
+    const patched = src.replace(
+      /(\s+server:\s*\{[^\n]*\},?\n)/,
+      '$1    prerender: {\n      enabled: true,\n      autoStaticPathsDiscovery: true,\n      crawlLinks: true,\n    },\n'
+    )
+    if (patched !== src) {
+      writeFileSync(cfgPath, patched, 'utf-8')
+      send(`  Injected prerender config into ${name}`, 'out')
+    }
+    break
+  }
+}
+
 // ── IPC: open external URL ────────────────────────────────────────────────
 
 ipcMain.handle('open-external', (_e, url: string) => shell.openExternal(url))
@@ -336,9 +385,13 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
           runCmd('git', ['remote', 'set-url', 'origin', repoUrl], dir)
         )
       }
+      const nitro = isNitroProject(dir)
+      if (nitro) {
+        send('> Patching Lovable project for static prerendering…', 'cmd')
+        patchLovableProject(dir, send)
+      }
       await runCmd(pm, ['install'], dir)
 
-      const nitro = isNitroProject(dir)
       const nitroPubDir = join(dir, '.output', 'public')
       const targetDir = outputDir || defaultOutDir
 
