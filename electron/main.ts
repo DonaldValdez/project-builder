@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
 import { join } from 'path'
-import { spawn } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, readdirSync, cpSync } from 'fs'
 
 const isMac = process.platform === 'darwin'
@@ -148,8 +148,14 @@ app.on('activate', () => {
 
 // ── Detection helpers ──────────────────────────────────────────────────────
 
+function isCommandAvailable(cmd: string): boolean {
+  try { return spawnSync(cmd, ['--version'], { shell: true }).status === 0 } catch { return false }
+}
+
 function detectPackageManager(dir: string): string {
-  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) return 'bun'
+  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) {
+    return isCommandAvailable('bun') ? 'bun' : 'npm'
+  }
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
   if (existsSync(join(dir, 'yarn.lock'))) return 'yarn'
   return 'npm'
@@ -195,13 +201,17 @@ type SendFn = (text: string, type: 'cmd' | 'out' | 'err' | 'done' | 'fail') => v
 
 // Auto-patch Lovable/TanStack Start projects before each build so users
 // never need to manually update the package or add prerender config.
-function patchLovableProject(dir: string, send: SendFn): void {
+function patchLovableProject(dir: string, pm: string, send: SendFn): void {
   const TARGET = '2.23.0'
 
-  // 1. Bump @lovable.dev/vite-tanstack-config to TARGET if below it
+  // 1. Bump @lovable.dev/vite-tanstack-config to TARGET if below it,
+  //    and add picomatch@^4 override when building with npm on Node.js 24+
+  //    (picomatch v2 has no `exports` field; Node.js 24 ESM resolver requires it).
   try {
     const pkgPath = join(dir, 'package.json')
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+    let dirty = false
+
     const inDev = '@lovable.dev/vite-tanstack-config' in (pkg.devDependencies ?? {})
     const inDep = '@lovable.dev/vite-tanstack-config' in (pkg.dependencies ?? {})
     const current = inDev
@@ -210,9 +220,23 @@ function patchLovableProject(dir: string, send: SendFn): void {
     if (current && semverLt(current, TARGET)) {
       if (inDev) pkg.devDependencies['@lovable.dev/vite-tanstack-config'] = TARGET
       else pkg.dependencies['@lovable.dev/vite-tanstack-config'] = TARGET
-      writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
+      dirty = true
       send(`  Bumped @lovable.dev/vite-tanstack-config ${current} → ${TARGET}`, 'out')
     }
+
+    const nodeMajor = parseInt(process.versions.node.split('.')[0], 10)
+    if (pm === 'npm' && nodeMajor >= 24) {
+      const ov = pkg.overrides ?? {}
+      const curPico = (ov.picomatch ?? '0').replace(/^[^\d]*/, '')
+      if (semverLt(curPico, '4.0.0')) {
+        ov.picomatch = '^4.0.0'
+        pkg.overrides = ov
+        dirty = true
+        send(`  Added picomatch@^4 override (Node.js ${nodeMajor} ESM fix)`, 'out')
+      }
+    }
+
+    if (dirty) writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
   } catch { /* unreadable */ }
 
   // 2. Inject prerender block into vite.config.ts/js if missing
@@ -385,10 +409,14 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
           runCmd('git', ['remote', 'set-url', 'origin', repoUrl], dir)
         )
       }
+      const hasBunLock = existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))
+      if (hasBunLock && pm === 'npm') {
+        send('  Note: bun.lock found but bun is not installed — building with npm', 'out')
+      }
       const nitro = isNitroProject(dir)
       if (nitro) {
         send('> Patching Lovable project for static prerendering…', 'cmd')
-        patchLovableProject(dir, send)
+        patchLovableProject(dir, pm, send)
       }
       await runCmd(pm, ['install'], dir)
 
