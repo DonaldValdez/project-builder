@@ -149,7 +149,7 @@ app.on('activate', () => {
 // ── Detection helpers ──────────────────────────────────────────────────────
 
 function detectPackageManager(dir: string): string {
-  if (existsSync(join(dir, 'bun.lockb'))) return 'bun'
+  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) return 'bun'
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
   if (existsSync(join(dir, 'yarn.lock'))) return 'yarn'
   return 'npm'
