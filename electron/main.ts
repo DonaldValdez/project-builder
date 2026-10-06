@@ -152,12 +152,25 @@ function isCommandAvailable(cmd: string): boolean {
   try { return spawnSync(cmd, ['--version'], { shell: true }).status === 0 } catch { return false }
 }
 
+// Returns which PM the lockfile was written by — may differ from what's installed.
+function getLockfilePm(dir: string): string | null {
+  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) return 'bun'
+  if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
+  if (existsSync(join(dir, 'yarn.lock'))) return 'yarn'
+  if (existsSync(join(dir, 'package-lock.json'))) return 'npm'
+  return null
+}
+
 function detectPackageManager(dir: string): string {
   if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) {
     return isCommandAvailable('bun') ? 'bun' : 'npm'
   }
-  if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
-  if (existsSync(join(dir, 'yarn.lock'))) return 'yarn'
+  if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
+    return isCommandAvailable('pnpm') ? 'pnpm' : 'npm'
+  }
+  if (existsSync(join(dir, 'yarn.lock'))) {
+    return isCommandAvailable('yarn') ? 'yarn' : 'npm'
+  }
   return 'npm'
 }
 
@@ -255,6 +268,44 @@ function patchLovableProject(dir: string, pm: string, send: SendFn): void {
     }
     break
   }
+}
+
+// Auto-diagnose a failed build and apply a fix. Returns true if a fix was
+// applied (caller should reinstall + retry), false if unknown error.
+function applyBuildFix(output: string, dir: string, send: SendFn): boolean {
+  // Pattern: Node.js ESM can't resolve a CJS-only package (no exports field).
+  // Appears as: Cannot find package 'D:\...\node_modules\picomatch\index.js'
+  // or: Cannot find package 'picomatch' imported from ...
+  let broken: string | undefined
+  const pathM = output.match(/node_modules[\\/](@[^\\/\s'"]+[\\/][^\\/\s'"]+|[^\\/\s'"@][^\\/\s'"]*)/i)
+  if (pathM) {
+    const parts = pathM[1].replace(/\\/g, '/').split('/')
+    broken = pathM[1].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+  } else {
+    const directM = output.match(/Cannot find (?:package|module) ['"]([a-z0-9@][^'"]+)/i)
+    if (directM) {
+      const name = directM[1]
+      broken = name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0]
+    }
+  }
+
+  if (!broken) return false
+
+  try {
+    const pkgPath = join(dir, 'package.json')
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+    if (pkg.overrides?.[broken] === 'latest') return false  // already tried, give up
+    pkg.overrides = { ...(pkg.overrides ?? {}), [broken]: 'latest' }
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
+    send(`  Auto-fix: pinned ${broken} → latest (ESM compatibility)`, 'out')
+  } catch { return false }
+
+  const nmDir = join(dir, 'node_modules')
+  if (existsSync(nmDir)) {
+    send('> Clearing node_modules for clean reinstall…', 'cmd')
+    rmSync(nmDir, { recursive: true, force: true })
+  }
+  return true
 }
 
 // ── IPC: open external URL ────────────────────────────────────────────────
@@ -391,6 +442,17 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
       child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Exit ${code}`))))
     })
 
+  // Like runCmd but streams output to the UI AND captures it for error analysis.
+  const runCmdCapture = (cmd: string, args: string[], cwd: string): Promise<{ code: number; output: string }> =>
+    new Promise((resolve) => {
+      send(`> ${cmd} ${args.join(' ')}`, 'cmd')
+      const chunks: string[] = []
+      const child = spawn(cmd, args, { cwd, shell: true })
+      child.stdout.on('data', (d) => { const s = d.toString(); send(s, 'out'); chunks.push(s) })
+      child.stderr.on('data', (d) => { const s = d.toString(); send(s, 'err'); chunks.push(s) })
+      child.on('close', (code) => resolve({ code: code ?? 1, output: chunks.join('') }))
+    })
+
   // Resolve where the framework puts its output by default
   const defaultOutDir = framework === 'Next.js' ? join(dir, '.next')
     : framework === 'Angular' ? join(dir, 'dist')
@@ -409,29 +471,60 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
           runCmd('git', ['remote', 'set-url', 'origin', repoUrl], dir)
         )
       }
-      const hasBunLock = existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))
-      if (hasBunLock && pm === 'npm') {
-        send('  Note: bun.lock found but bun is not installed — building with npm', 'out')
+      // Wipe node_modules when the lockfile was written by a different PM than
+      // what we're running. Otherwise the existing install may be incompatible
+      // and commands like `npm install` will skip re-resolution entirely.
+      const lockfilePm = getLockfilePm(dir)
+      if (lockfilePm && lockfilePm !== pm) {
+        send(`  Note: ${lockfilePm}.lock found but ${lockfilePm} is not installed — building with ${pm}`, 'out')
         const nmDir = join(dir, 'node_modules')
         if (existsSync(nmDir)) {
-          send('> Removing Bun-installed node_modules for a clean npm install…', 'cmd')
+          send(`> Removing ${lockfilePm}-installed node_modules for a clean ${pm} install…`, 'cmd')
           rmSync(nmDir, { recursive: true, force: true })
         }
       }
+
       const nitro = isNitroProject(dir)
       if (nitro) {
         send('> Patching Lovable project for static prerendering…', 'cmd')
         patchLovableProject(dir, pm, send)
       }
-      await runCmd(pm, ['install'], dir)
+
+      // Install — retry with --legacy-peer-deps on peer dependency conflicts
+      const installResult = await runCmdCapture(pm, ['install'], dir)
+      if (installResult.code !== 0) {
+        if (pm === 'npm' && /ERESOLVE/i.test(installResult.output)) {
+          send('  Peer dependency conflict — retrying with --legacy-peer-deps…', 'out')
+          await runCmd(pm, ['install', '--legacy-peer-deps'], dir)
+        } else {
+          throw new Error(`${pm} install failed (Exit ${installResult.code})`)
+        }
+      }
 
       const nitroPubDir = join(dir, '.output', 'public')
       const targetDir = outputDir || defaultOutDir
 
-      // Nitro/TanStack Start: never pass --outDir — the build pipeline ignores
-      // it and may create a partial empty dir that blocks the fallback copy.
+      // Build args: Nitro ignores --outDir so never pass it; Vite accepts it directly
+      const buildArgs = (!nitro && outputDir && framework === 'Vite')
+        ? ['run', 'build', '--', '--outDir', outputDir]
+        : ['run', 'build']
+
+      // Build — auto-diagnose failures and retry once with a fix applied
+      let buildResult = await runCmdCapture(pm, buildArgs, dir)
+      if (buildResult.code !== 0) {
+        const fixed = applyBuildFix(buildResult.output, dir, send)
+        if (fixed) {
+          send('> Retrying build after auto-fix…', 'cmd')
+          await runCmd(pm, ['install'], dir)
+          buildResult = await runCmdCapture(pm, buildArgs, dir)
+          if (buildResult.code !== 0) throw new Error(`Build failed after auto-fix (Exit ${buildResult.code})`)
+        } else {
+          throw new Error(`Build failed (Exit ${buildResult.code})`)
+        }
+      }
+
+      // Post-build: copy output to target location if needed
       if (nitro) {
-        await runCmd(pm, ['run', 'build'], dir)
         if (existsSync(nitroPubDir)) {
           send(`> Nitro build — copying .output/public/ → ${targetDir}`, 'cmd')
           cpSync(nitroPubDir, targetDir, { recursive: true })
@@ -442,11 +535,7 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
           }
           send(`  Note: for full Cloudflare/Nitro deployment, use .output/ instead.`, 'out')
         }
-      } else if (outputDir && framework === 'Vite') {
-        // Regular Vite: pass --outDir so the build lands directly in the right place
-        await runCmd(pm, ['run', 'build', '--', '--outDir', outputDir], dir)
-      } else {
-        await runCmd(pm, ['run', 'build'], dir)
+      } else if (!(outputDir && framework === 'Vite')) {
         if (outputDir && outputDir !== defaultOutDir && existsSync(defaultOutDir)) {
           send(`> Copying output to ${outputDir}`, 'cmd')
           cpSync(defaultOutDir, outputDir, { recursive: true })
