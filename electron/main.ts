@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
 import { join } from 'path'
 import { spawn, spawnSync } from 'child_process'
-import { existsSync, readFileSync, writeFileSync, readdirSync, cpSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, cpSync, rmSync } from 'fs'
 
 const isMac = process.platform === 'darwin'
 
@@ -412,6 +412,11 @@ ipcMain.on('run-pipeline', (event, { dir, pm, framework, hasGit, repoUrl, output
       const hasBunLock = existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))
       if (hasBunLock && pm === 'npm') {
         send('  Note: bun.lock found but bun is not installed — building with npm', 'out')
+        const nmDir = join(dir, 'node_modules')
+        if (existsSync(nmDir)) {
+          send('> Removing Bun-installed node_modules for a clean npm install…', 'cmd')
+          rmSync(nmDir, { recursive: true, force: true })
+        }
       }
       const nitro = isNitroProject(dir)
       if (nitro) {
